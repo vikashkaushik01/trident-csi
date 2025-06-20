@@ -1,151 +1,164 @@
-# Trident Storage Provisioner - Complete Setup Guide for Kubernetes 1.29
+# Trident CSI Storage - Simple Setup Guide for Kubernetes 1.29
 
-## 📋 Overview
+## 🎯 What You'll Deploy
+NetApp Trident CSI driver for dynamic storage provisioning in Kubernetes 1.29.
 
-NetApp Trident is a dynamic storage provisioner for Kubernetes that enables persistent storage for containerized applications. This guide provides step-by-step instructions for deploying Trident 25.02.0 on Kubernetes 1.29.
-
-### ✅ Compatibility
-- **Kubernetes Version**: 1.29.x (tested on 1.29.12)
-- **Trident Version**: 25.02.0
-- **Container Runtime**: Docker, containerd, CRI-O
-- **Architecture**: amd64, arm64
+**✅ This guide is tested and verified on Kubernetes 1.29.12**
 
 ---
 
-## 🚀 Quick Start
+## 📋 Prerequisites Check
 
-### Step 1: Prerequisites Check
-
-Before beginning the installation, ensure you have:
+Run these commands to verify your environment is ready:
 
 ```bash
-# 1. Verify Kubernetes version
+# 1. Check Kubernetes version (must be 1.29.x)
 kubectl version --short
+# Expected: Client Version: v1.29.x, Server Version: v1.29.x
 
-# Expected output should show v1.29.x
-# Client Version: v1.29.12
-# Server Version: v1.29.12
-
-# 2. Verify cluster admin privileges
+# 2. Verify you have admin access
 kubectl auth can-i '*' '*' --all-namespaces
-# Expected output: yes
+# Expected: yes
 
-# 3. Check cluster nodes
+# 3. Check all nodes are ready
 kubectl get nodes
-# Ensure all nodes are in Ready state
+# All nodes should show STATUS: Ready
 ```
 
-### Step 2: Download and Prepare Trident Installer
-
-```bash
-# If you don't have the installer, download it:
-# wget https://github.com/NetApp/trident/releases/download/v25.02.0/trident-installer-25.02.0.tar.gz
-# tar -xf trident-installer-25.02.0.tar.gz
-# cd trident-installer
-
-# Or if using this package, navigate to the installer directory:
-cd /path/to/trident-installer
-```
+**✋ Stop here if any check fails - fix issues before proceeding**
 
 ---
 
-## 📦 Installation Methods
+## 🚀 Step-by-Step Deployment
 
-Choose one of the following installation methods:
-
-### Method 1: Operator-Based Installation (Recommended)
-
-#### Step 1: Create Trident Namespace
+### Step 1: Create Trident Namespace
 ```bash
 kubectl create namespace trident
 ```
 
-#### Step 2: Install Trident CRDs and Operator
+### Step 2: Deploy Trident Operator
 ```bash
-# For Kubernetes 1.25+ (including 1.29)
 kubectl apply -f deploy/bundle_post_1_25.yaml
-
-# Wait for operator to be ready
-kubectl wait --for=condition=available deployment/trident-operator -n trident --timeout=120s
 ```
 
-#### Step 3: Deploy TridentOrchestrator
+### Step 3: Wait for Operator to be Ready
 ```bash
-# Apply the K8s 1.29 optimized configuration
-kubectl apply -f deploy/crds/tridentorchestrator_cr_k8s_1_29.yaml
+kubectl wait --for=condition=available deployment/trident-operator -n trident --timeout=300s
+```
 
-# Monitor the deployment progress
+### Step 4: Deploy Trident
+```bash
+kubectl apply -f deploy/crds/tridentorchestrator_cr_k8s_1_29.yaml
+```
+
+### Step 5: Wait for Installation to Complete
+```bash
+# Watch the installation progress (press Ctrl+C when status shows "Installed")
 kubectl get tridentorchestrator trident -w
 ```
 
-### Method 2: Using tridentctl (Alternative)
+**🎉 Installation Complete!** - Continue to verification.
+
+---
+
+## ✅ Verify Installation
+
+Run these commands to confirm everything is working:
 
 ```bash
-# Make tridentctl executable
-chmod +x tridentctl
+# 1. Check installation status
+kubectl get tridentorchestrator trident
+# STATUS should show: Installed
 
-# Install Trident
-./tridentctl install -n trident
+# 2. Verify all pods are running
+kubectl get pods -n trident
+# All pods should show READY and STATUS: Running
 
-# Verify installation
-./tridentctl -n trident version
+# 3. Confirm CSI driver is registered
+kubectl get csidriver | grep trident
+# Should show: csi.trident.netapp.io
+```
+
+**Expected pod output:**
+```
+NAME                                  READY   STATUS    RESTARTS   AGE
+trident-controller-xxxxxxxxxx-xxxxx   6/6     Running   0          2m
+trident-node-linux-xxxxx              2/2     Running   0          2m
+trident-node-linux-xxxxx              2/2     Running   0          2m
+trident-operator-xxxxxxxxx-xxxxx      1/1     Running   0          5m
 ```
 
 ---
 
-## ✅ Verification and Testing
+## 🔧 Configure Your Storage Backend
 
-### Verify Installation Success
+**Choose your NetApp storage system type:**
 
+### Option A: ONTAP NAS Storage
 ```bash
-# 1. Check TridentOrchestrator status
-kubectl get tridentorchestrator trident
-
-# Expected output:
-# NAME      AGE
-# trident   2m
-
-# 2. Check detailed status
-kubectl describe tridentorchestrator trident | grep -A 5 "Status:"
-
-# Expected status: Installed
-# Version: v25.02.0
-
-# 3. Verify all pods are running
-kubectl get pods -n trident
-
-# Expected output (pod names may vary):
-# NAME                                  READY   STATUS    RESTARTS   AGE
-# trident-controller-7c9789fc59-qrxnc   6/6     Running   0          5m
-# trident-node-linux-8nmdl              2/2     Running   0          5m
-# trident-node-linux-f46xl              2/2     Running   0          5m
-# trident-operator-6fcd8c68b9-s46mj     1/1     Running   0          8m
-
-# 4. Verify CSI driver registration
-kubectl get csidriver
-
-# Should include: csi.trident.netapp.io
-
-# 5. Check Trident version
-kubectl get tridentversion -n trident
+cat <<EOF | kubectl apply -f -
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: ontap-nas-backend
+spec:
+  version: 1
+  storageDriverName: ontap-nas
+  managementLIF: "YOUR_ONTAP_MGMT_IP"
+  dataLIF: "YOUR_ONTAP_DATA_IP"
+  svm: "YOUR_SVM_NAME"
+  username: "YOUR_USERNAME"
+  password: "YOUR_PASSWORD"
+EOF
 ```
 
-### Test Basic Functionality
+### Option B: ONTAP SAN Storage
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: ontap-san-backend
+spec:
+  version: 1
+  storageDriverName: ontap-san
+  managementLIF: "YOUR_ONTAP_MGMT_IP"
+  dataLIF: "YOUR_ONTAP_DATA_IP"
+  svm: "YOUR_SVM_NAME"
+  username: "YOUR_USERNAME"
+  password: "YOUR_PASSWORD"
+  igroupName: "YOUR_IGROUP_NAME"
+EOF
+```
+
+**📝 Replace the YOUR_* placeholders with your actual NetApp storage details**
+
+---
+
+## 🗃️ Create Storage Class
 
 ```bash
-# 1. Create a test storage class
 cat <<EOF | kubectl apply -f -
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: trident-test
+  name: trident-csi
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
 provisioner: csi.trident.netapp.io
 parameters:
-  backendType: "ontap-nas"
+  fsType: "ext4"
 allowVolumeExpansion: true
+reclaimPolicy: Delete
 EOF
+```
 
-# 2. Create a test PVC
+---
+
+## 🧪 Test Your Setup
+
+### Create a Test PVC
+```bash
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -157,272 +170,109 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: trident-test
+  storageClassName: trident-csi
 EOF
+```
 
-# 3. Check PVC status
+### Verify PVC is Bound
+```bash
 kubectl get pvc test-pvc
-# Status should be Bound once backend is configured
+# STATUS should show: Bound
 ```
 
----
-
-## 🔧 Configuration
-
-### Configure Storage Backend
-
-After successful installation, you need to configure at least one storage backend. Here are examples for common NetApp storage systems:
-
-#### ONTAP NAS Backend
+### Test with a Pod
 ```bash
 cat <<EOF | kubectl apply -f -
-apiVersion: trident.netapp.io/v1
-kind: TridentBackendConfig
+apiVersion: v1
+kind: Pod
 metadata:
-  name: backend-ontap-nas
+  name: test-pod
 spec:
-  version: 1
-  storageDriverName: ontap-nas
-  managementLIF: "10.0.0.1"
-  dataLIF: "10.0.0.2"
-  svm: "trident_svm"
-  username: "admin"
-  password: "password"
-  storagePrefix: "trident_"
+  containers:
+  - name: test
+    image: nginx:latest
+    volumeMounts:
+    - name: test-volume
+      mountPath: /data
+  volumes:
+  - name: test-volume
+    persistentVolumeClaim:
+      claimName: test-pvc
 EOF
 ```
 
-#### ONTAP SAN Backend
+### Verify Pod is Running
 ```bash
-cat <<EOF | kubectl apply -f -
-apiVersion: trident.netapp.io/v1
-kind: TridentBackendConfig
-metadata:
-  name: backend-ontap-san
-spec:
-  version: 1
-  storageDriverName: ontap-san
-  managementLIF: "10.0.0.1"
-  dataLIF: "10.0.0.3"
-  svm: "trident_svm"
-  username: "admin"
-  password: "password"
-  igroupName: "trident"
-EOF
+kubectl get pod test-pod
+# STATUS should show: Running
 ```
 
-### Create Storage Classes
-
-```bash
-# Basic storage class
-cat <<EOF | kubectl apply -f -
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: ontap-gold
-provisioner: csi.trident.netapp.io
-parameters:
-  selector: "performance=gold"
-  fsType: "ext4"
-allowVolumeExpansion: true
-reclaimPolicy: Delete
-EOF
-
-# High-performance storage class
-cat <<EOF | kubectl apply -f -
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: ontap-platinum
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
-provisioner: csi.trident.netapp.io
-parameters:
-  selector: "performance=platinum"
-  fsType: "ext4"
-allowVolumeExpansion: true
-reclaimPolicy: Delete
-EOF
-```
+**🎉 Success! Your Trident CSI setup is working correctly.**
 
 ---
 
-## 🛠 Troubleshooting
-
-### Common Issues and Solutions
-
-#### 1. Pod Startup Issues
+## 🧹 Cleanup Test Resources
 ```bash
-# Check pod events
-kubectl describe pod <pod-name> -n trident
-
-# Check operator logs
-kubectl logs -n trident -l app=operator.trident.netapp.io
-
-# Check controller logs
-kubectl logs -n trident -l app=controller.csi.trident.netapp.io
-```
-
-#### 2. Image Pull Errors
-```bash
-# Verify image availability
-kubectl describe pod <pod-name> -n trident
-
-# For air-gapped environments, ensure images are mirrored
-# to your private registry
-```
-
-#### 3. CSI Driver Issues
-```bash
-# Check CSI driver registration
-kubectl get csidriver csi.trident.netapp.io -o yaml
-
-# Check node CSI driver pods
-kubectl get pods -n trident -l app=node.csi.trident.netapp.io
-```
-
-#### 4. Backend Connection Issues
-```bash
-# Check backend status
-kubectl get tbc -n trident
-
-# Check backend logs
-kubectl logs -n trident -l app=controller.csi.trident.netapp.io | grep backend
-```
-
-### Diagnostic Commands
-
-```bash
-# Get comprehensive status
-kubectl get tridentorchestrator trident -o yaml
-
-# Check all Trident resources
-kubectl get all -n trident
-
-# View recent events
-kubectl get events -n trident --sort-by='.lastTimestamp'
-
-# Check storage classes
-kubectl get storageclass
-
-# Check backends
-kubectl get tridentbackendconfig -n trident
-
-# Using tridentctl (if available)
-./tridentctl -n trident get backend
-./tridentctl -n trident get volume
-./tridentctl -n trident logs
-```
-
----
-
-## 🔒 Security Considerations
-
-### RBAC and Permissions
-The Trident operator requires specific RBAC permissions. The bundled deployment includes:
-- ServiceAccount: `trident-operator`
-- ClusterRole: `trident-operator`
-- ClusterRoleBinding: `trident-operator`
-
-### Network Security
-- Ensure proper network connectivity between Kubernetes nodes and NetApp storage systems
-- Configure appropriate firewall rules for management and data LIFs
-- Use secure protocols (HTTPS/TLS) where possible
-
-### Secrets Management
-```bash
-# Create secret for backend credentials
-kubectl create secret generic backend-secret \
-  --from-literal=username=admin \
-  --from-literal=password=your-password \
-  -n trident
-
-# Reference secret in backend configuration
-# credentials:
-#   name: backend-secret
-#   type: Opaque
-```
-
----
-
-## 📊 Monitoring and Maintenance
-
-### Health Checks
-```bash
-# Regular health check script
-#!/bin/bash
-echo "=== Trident Health Check ==="
-echo "TridentOrchestrator Status:"
-kubectl get tridentorchestrator trident -o jsonpath='{.status.status}'
-echo ""
-
-echo "Pod Status:"
-kubectl get pods -n trident --no-headers | grep -v Running | wc -l
-echo " non-running pods"
-
-echo "Backend Status:"
-kubectl get tbc -n trident --no-headers | wc -l
-echo " backends configured"
-```
-
-### Log Collection
-```bash
-# Collect all Trident logs
-kubectl logs -n trident -l app=operator.trident.netapp.io > trident-operator.log
-kubectl logs -n trident -l app=controller.csi.trident.netapp.io > trident-controller.log
-kubectl logs -n trident -l app=node.csi.trident.netapp.io > trident-node.log
-```
-
-### Upgrades
-```bash
-# Upgrade process
-# 1. Download new version
-# 2. Update operator image
-kubectl set image deployment/trident-operator trident-operator=netapp/trident-operator:25.02.0 -n trident
-
-# 3. Update TridentOrchestrator CR
-kubectl patch tridentorchestrator trident --type merge -p '{"spec":{"tridentImage":"netapp/trident:25.02.0"}}'
-```
-
----
-
-## 🆘 Support and Resources
-
-### Getting Help
-- **Documentation**: [NetApp Trident Documentation](https://docs.netapp.com/us-en/trident/)
-- **Community**: [NetApp Community Forums](https://community.netapp.com/)
-- **Issues**: [GitHub Issues](https://github.com/NetApp/trident/issues)
-
-### Useful Commands Reference
-```bash
-# Quick status check
-alias trident-status='kubectl get tridentorchestrator,pods -n trident'
-
-# Check backends
-alias trident-backends='kubectl get tbc -n trident'
-
-# Check volumes
-alias trident-volumes='kubectl get pv | grep trident'
-
-# Clean up test resources
+kubectl delete pod test-pod
 kubectl delete pvc test-pvc
-kubectl delete storageclass trident-test
 ```
 
 ---
 
-## 📝 Next Steps
+## ❓ Troubleshooting
 
-After successful installation:
+### If Installation Fails
 
-1. **Configure Storage Backends**: Set up connections to your NetApp storage systems
-2. **Create Storage Classes**: Define storage tiers and policies
-3. **Test Persistent Volumes**: Deploy applications with persistent storage
-4. **Set up Monitoring**: Implement monitoring for storage health and performance
-5. **Plan Backup Strategy**: Configure backup and disaster recovery procedures
+**Check operator logs:**
+```bash
+kubectl logs -n trident deployment/trident-operator
+```
+
+**Check TridentOrchestrator status:**
+```bash
+kubectl describe tridentorchestrator trident
+```
+
+### If PVC Stays Pending
+
+**Check backend configuration:**
+```bash
+kubectl get tridentbackendconfig -o wide
+```
+
+**Check controller logs:**
+```bash
+kubectl logs -n trident deployment/trident-controller -c trident-main
+```
+
+### Common Issues
+
+1. **"No backend available"** → Configure a storage backend first
+2. **"Connection refused"** → Check your NetApp storage system IP addresses
+3. **"Authentication failed"** → Verify username/password for NetApp storage
+4. **"Pods not starting"** → Check node resources and network connectivity
 
 ---
 
-**✅ Installation Complete!**
+## 📞 Need Help?
 
-Your Trident installation is now ready. You can start using dynamic storage provisioning in your Kubernetes 1.29 cluster. 
+1. Check logs: `kubectl logs -n trident deployment/trident-controller`
+2. Review the troubleshooting section above
+3. Verify your storage backend configuration
+4. Contact your NetApp support team
+
+---
+
+## 🔄 Next Steps
+
+✅ **You're ready to use Trident CSI!**
+
+- Create more storage classes for different performance tiers
+- Set up volume snapshots and clones
+- Configure backup and disaster recovery
+- Monitor storage usage and performance
+
+**Important Files:**
+- Storage backend samples: `sample-input/backends-samples/`
+- Storage class templates: `sample-input/storage-class-samples/`
+- PVC examples: `sample-input/pvc-samples/` 

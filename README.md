@@ -137,8 +137,8 @@ trident-csi/
 ├── 📁 extras/                                     # Additional tools
 │   └── (binaries not included - download from NetApp releases)
 │
-├── 📁 helm/                                       # Helm charts
-│   └── trident-operator-100.2502.0.tgz          # Helm chart package
+├── 📁 extras/                                     # Additional utilities
+│   └── (Optional tools and binaries)
 │
 └── 🔧 kind-cluster-k8s-1.29.yaml                 # Kind cluster for testing
 ```
