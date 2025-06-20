@@ -474,7 +474,7 @@ spec:
               fieldPath: metadata.name
         - name: OPERATOR_NAME
           value: trident-operator
-        image: ghcr.io/nirmata/trident-operator:25.02.0
+        image: netapp/trident-operator:25.02.0
         imagePullPolicy: IfNotPresent
         name: trident-operator
         resources:
